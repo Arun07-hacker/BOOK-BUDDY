@@ -1,0 +1,337 @@
+-- ==========================================
+-- BOOKBUDDY HOTEL MANAGEMENT SYSTEM
+-- Complete Database Schema Creation
+-- ==========================================
+
+-- Drop existing tables if they exist (in correct order due to foreign keys)
+DROP TABLE IF EXISTS order_detail CASCADE;
+DROP TABLE IF EXISTS food_order CASCADE;
+DROP TABLE IF EXISTS booking CASCADE;
+DROP TABLE IF EXISTS room CASCADE;
+DROP TABLE IF EXISTS hotel_facility CASCADE;
+DROP TABLE IF EXISTS facility CASCADE;
+DROP TABLE IF EXISTS room_type CASCADE;
+DROP TABLE IF EXISTS assigned_task CASCADE;
+DROP TABLE IF EXISTS food_item CASCADE;
+DROP TABLE IF EXISTS hotel CASCADE;
+DROP TABLE IF EXISTS "user" CASCADE;
+
+-- 1. USER Table (All Accounts: Customer, Staff, Manager)
+CREATE TABLE "user" (
+    user_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('Customer', 'Staff', 'Manager')),
+    phone_number VARCHAR(15),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. HOTEL Table (Properties)
+CREATE TABLE hotel (
+    hotel_id SERIAL PRIMARY KEY,
+    name VARCHAR(150) UNIQUE NOT NULL,
+    location VARCHAR(100) NOT NULL,
+    address TEXT,
+    rating NUMERIC(2, 1) DEFAULT 0.0,
+    base_price_per_night NUMERIC(10, 2) NOT NULL,
+    image_url VARCHAR(255)
+);
+
+-- 3. ROOM_TYPE Table (Room Categories)
+CREATE TABLE room_type (
+    room_type_id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    max_capacity INT NOT NULL,
+    price_multiplier NUMERIC(3, 2) DEFAULT 1.00
+);
+
+-- 4. ROOM Table (Physical Rooms)
+CREATE TABLE room (
+    room_number VARCHAR(10),
+    hotel_id INT NOT NULL,
+    room_type_id INT NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('Vacant', 'Occupied', 'Cleaning')),
+    
+    PRIMARY KEY (room_number, hotel_id),
+    
+    FOREIGN KEY (hotel_id) REFERENCES hotel(hotel_id) ON DELETE CASCADE,
+    FOREIGN KEY (room_type_id) REFERENCES room_type(room_type_id) ON DELETE RESTRICT
+);
+
+-- 5. BOOKING Table (Reservations)
+CREATE TABLE booking (
+    booking_id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL,
+    hotel_id INT NOT NULL,
+    room_number VARCHAR(10) NOT NULL,
+    check_in_date DATE NOT NULL,
+    check_out_date DATE NOT NULL,
+    total_nights INT NOT NULL,
+    grand_total NUMERIC(10, 2) NOT NULL,
+    booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE RESTRICT,
+    FOREIGN KEY (room_number, hotel_id) REFERENCES room(room_number, hotel_id) ON DELETE RESTRICT,
+    
+    CHECK (check_out_date > check_in_date)
+);
+
+-- 6. FOOD_ITEM Table (Menu)
+CREATE TABLE food_item (
+    food_item_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    price NUMERIC(7, 2) NOT NULL,
+    category VARCHAR(20) NOT NULL CHECK (category IN ('Breakfast', 'Lunch', 'Dinner', 'Beverages')),
+    type VARCHAR(10) NOT NULL CHECK (type IN ('Veg', 'Non-Veg', 'General'))
+);
+
+-- 7. FOOD_ORDER Table (Order Header)
+CREATE TABLE food_order (
+    order_id SERIAL PRIMARY KEY,
+    booking_id INT UNIQUE NOT NULL,
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('Pending', 'In Progress', 'Delivered', 'Cancelled')),
+    
+    FOREIGN KEY (booking_id) REFERENCES booking(booking_id) ON DELETE CASCADE
+);
+
+-- 8. ORDER_DETAIL Table (Order Line Items)
+CREATE TABLE order_detail (
+    order_id INT NOT NULL,
+    food_item_id INT NOT NULL,
+    quantity INT NOT NULL,
+    subtotal NUMERIC(7, 2) NOT NULL,
+    
+    PRIMARY KEY (order_id, food_item_id),
+    
+    FOREIGN KEY (order_id) REFERENCES food_order(order_id) ON DELETE CASCADE,
+    FOREIGN KEY (food_item_id) REFERENCES food_item(food_item_id) ON DELETE RESTRICT,
+    
+    CHECK (quantity > 0)
+);
+
+-- 9. ASSIGNED_TASK Table (Staff Management)
+CREATE TABLE assigned_task (
+    task_id SERIAL PRIMARY KEY,
+    staff_id INT NOT NULL,
+    title VARCHAR(150) NOT NULL,
+    details TEXT,
+    due_date DATE,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('Pending', 'In Progress', 'Complete', 'Overdue')),
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (staff_id) REFERENCES "user"(user_id) ON DELETE RESTRICT
+);
+
+-- 10. FACILITY Table (Facilities)
+CREATE TABLE facility (
+    facility_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL
+);
+
+-- 11. HOTEL_FACILITY Table (Many-to-Many Facility Management)
+CREATE TABLE hotel_facility (
+    hotel_id INT NOT NULL,
+    facility_id INT NOT NULL,
+    
+    PRIMARY KEY (hotel_id, facility_id),
+    
+    FOREIGN KEY (hotel_id) REFERENCES hotel(hotel_id) ON DELETE CASCADE,
+    FOREIGN KEY (facility_id) REFERENCES facility(facility_id) ON DELETE CASCADE
+);
+
+-- Set a psql variable for the hash (paste your hash between single quotes)
+\set pwhash '$2b$10$pasteYourBcryptHashFromNodeHere.........................'
+
+BEGIN;
+
+-- Ensure user has hotel_id (if not already added)
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS hotel_id INT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_user_hotel'
+  ) THEN
+    ALTER TABLE "user"
+      ADD CONSTRAINT fk_user_hotel
+      FOREIGN KEY (hotel_id) REFERENCES hotel(hotel_id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- MANAGERS: one per hotel_id 1..10
+INSERT INTO "user" (name, email, password_hash, role, phone_number, created_at, hotel_id) VALUES
+('Manager 1',  'manager1@bookbuddy.com',  :'pwhash', 'Manager', '9000000001', NOW(), 1),
+('Manager 2',  'manager2@bookbuddy.com',  :'pwhash', 'Manager', '9000000002', NOW(), 2),
+('Manager 3',  'manager3@bookbuddy.com',  :'pwhash', 'Manager', '9000000003', NOW(), 3),
+('Manager 4',  'manager4@bookbuddy.com',  :'pwhash', 'Manager', '9000000004', NOW(), 4),
+('Manager 5',  'manager5@bookbuddy.com',  :'pwhash', 'Manager', '9000000005', NOW(), 5),
+('Manager 6',  'manager6@bookbuddy.com',  :'pwhash', 'Manager', '9000000006', NOW(), 6),
+('Manager 7',  'manager7@bookbuddy.com',  :'pwhash', 'Manager', '9000000007', NOW(), 7),
+('Manager 8',  'manager8@bookbuddy.com',  :'pwhash', 'Manager', '9000000008', NOW(), 8),
+('Manager 9',  'manager9@bookbuddy.com',  :'pwhash', 'Manager', '9000000009', NOW(), 9),
+('Manager 10', 'manager10@bookbuddy.com', :'pwhash', 'Manager', '9000000010', NOW(), 10);
+
+-- STAFF: 4 per hotel (change 1,4 to 1,3 or 1,6 for 3 or 6 staff)
+WITH hotels(hotel_id) AS (
+  VALUES (1),(2),(3),(4),(5),(6),(7),(8),(9),(10)
+),
+staff_src AS (
+  SELECT h.hotel_id, i AS idx
+  FROM hotels h
+  CROSS JOIN generate_series(1,4) AS i
+)
+INSERT INTO "user" (name, email, password_hash, role, phone_number, created_at, hotel_id)
+SELECT
+  CONCAT('Staff ', hotel_id, '-', idx) AS name,
+  CONCAT('staff', idx, '.hotel', hotel_id, '@bookbuddy.com') AS email,
+  :'pwhash' AS password_hash,
+  'Staff' AS role,
+  NULL::varchar AS phone_number,
+  NOW() AS created_at,
+  hotel_id
+FROM staff_src;
+
+
+COMMIT;
+-- Managers
+UPDATE "user" SET name='Arun', password='Password@123' WHERE user_id=1;
+UPDATE "user" SET name='Sundar', password='Password@123' WHERE user_id=2;
+UPDATE "user" SET name='Kalyan', password='Password@123' WHERE user_id=3;
+UPDATE "user" SET name='Vignesh', password='Password@123' WHERE user_id=4;
+UPDATE "user" SET name='Murugan', password='Password@123' WHERE user_id=5;
+UPDATE "user" SET name='Jegan', password='Password@123' WHERE user_id=6;
+UPDATE "user" SET name='Siva', password='Password@123' WHERE user_id=7;
+UPDATE "user" SET name='Manoj', password='Password@123' WHERE user_id=8;
+UPDATE "user" SET name='Praveesh', password='Password@123' WHERE user_id=9;
+UPDATE "user" SET name='Vikram', password='Password@123' WHERE user_id=10;
+
+-- Staff (Hotel 1-10, 4 per hotel)
+UPDATE "user" SET name='Kavi', password='Password@123' WHERE user_id=11;
+UPDATE "user" SET name='Lalith', password='Password@123' WHERE user_id=12;
+UPDATE "user" SET name='Mohan', password='Password@123' WHERE user_id=13;
+UPDATE "user" SET name='Shanthi', password='Password@123' WHERE user_id=14;
+
+UPDATE "user" SET name='Priya', password='Password@123' WHERE user_id=15;
+UPDATE "user" SET name='Raj', password='Password@123' WHERE user_id=16;
+UPDATE "user" SET name='Nandhini', password='Password@123' WHERE user_id=17;
+UPDATE "user" SET name='Ajay', password='Password@123' WHERE user_id=18;
+
+UPDATE "user" SET name='Manojini', password='Password@123' WHERE user_id=19;
+UPDATE "user" SET name='Sudha', password='Password@123' WHERE user_id=20;
+UPDATE "user" SET name='Kumar', password='Password@123' WHERE user_id=21;
+UPDATE "user" SET name='Lakshmi', password='Password@123' WHERE user_id=22;
+
+UPDATE "user" SET name='Vishal', password='Password@123' WHERE user_id=23;
+UPDATE "user" SET name='Bhavani', password='Password@123' WHERE user_id=24;
+UPDATE "user" SET name='Sukumaar', password='Password@123' WHERE user_id=25;
+UPDATE "user" SET name='Silpa', password='Password@123' WHERE user_id=26;
+
+UPDATE "user" SET name='Jayanth', password='Password@123' WHERE user_id=27;
+UPDATE "user" SET name='Anbu', password='Password@123' WHERE user_id=28;
+UPDATE "user" SET name='Murugesh', password='Password@123' WHERE user_id=29;
+UPDATE "user" SET name='Santhana', password='Password@123' WHERE user_id=30;
+
+UPDATE "user" SET name='Aravind', password='Password@123' WHERE user_id=31;
+UPDATE "user" SET name='Gopi', password='Password@123' WHERE user_id=32;
+UPDATE "user" SET name='Revathi', password='Password@123' WHERE user_id=33;
+UPDATE "user" SET name='Kethan', password='Password@123' WHERE user_id=34;
+
+UPDATE "user" SET name='Priya', password='Password@123' WHERE user_id=35;
+UPDATE "user" SET name='Saravanan', password='Password@123' WHERE user_id=36;
+UPDATE "user" SET name='Nandan', password='Password@123' WHERE user_id=37;
+UPDATE "user" SET name='Sita', password='Password@123' WHERE user_id=38;
+
+UPDATE "user" SET name='Akhil', password='Password@123' WHERE user_id=39;
+UPDATE "user" SET name='Vaani', password='Password@123' WHERE user_id=40;
+UPDATE "user" SET name='Rajesh', password='Password@123' WHERE user_id=41;
+UPDATE "user" SET name='Soundharya', password='Password@123' WHERE user_id=42;
+
+UPDATE "user" SET name='Anushka', password='Password@123' WHERE user_id=43;
+UPDATE "user" SET name='Sundari', password='Password@123' WHERE user_id=44;
+UPDATE "user" SET name='Mohana', password='Password@123' WHERE user_id=45;
+UPDATE "user" SET name='Janavi', password='Password@123' WHERE user_id=46;
+
+UPDATE "user" SET name='Ashok', password='Password@123' WHERE user_id=47;
+UPDATE "user" SET name='Karthik', password='Password@123' WHERE user_id=48;
+UPDATE "user" SET name='Divya', password='Password@123' WHERE user_id=49;
+UPDATE "user" SET name='Prakash', password='Password@123' WHERE user_id=50;
+
+INSERT INTO facility (name) VALUES
+('Free WiFi'),
+('Swimming Pool'),
+('Gym'),
+('Spa'),
+('Parking'),
+('Restaurant'),
+('Bar'),
+('Laundry Service'),
+('Airport Shuttle'),
+('Room Service'),
+('Conference Room'),
+('Air Conditioning'),
+('Non-smoking Rooms'),
+('24x7 Reception'),
+('Elevator')
+ON CONFLICT (name) DO NOTHING;
+
+-- Verify
+SELECT facility_id, name
+FROM facility
+ORDER BY facility_id;
+
+INSERT INTO food_item (name, price, category, type) VALUES
+-- Breakfast
+('Idli Sambar',            60.00,  'Breakfast', 'Veg'),
+('Masala Dosa',            90.00,  'Breakfast', 'Veg'),
+('Pongal Vada',            85.00,  'Breakfast', 'Veg'),
+('Omelette',               75.00,  'Breakfast', 'Non-Veg'),
+('Poori Masala',           95.00,  'Breakfast', 'Veg'),
+
+-- Lunch
+('Veg Thali',             180.00,  'Lunch',     'Veg'),
+('Chicken Biryani',       220.00,  'Lunch',     'Non-Veg'),
+('Mutton Biryani',        280.00,  'Lunch',     'Non-Veg'),
+('Paneer Butter Masala',  210.00,  'Lunch',     'Veg'),
+('Veg Fried Rice',        160.00,  'Lunch',     'Veg'),
+('Chicken Fried Rice',    190.00,  'Lunch',     'Non-Veg'),
+
+-- Dinner
+('Tandoori Roti',          25.00,  'Dinner',    'Veg'),
+('Butter Naan',            40.00,  'Dinner',    'Veg'),
+('Dal Tadka',             160.00,  'Dinner',    'Veg'),
+('Chicken Curry',         230.00,  'Dinner',    'Non-Veg'),
+('Fish Curry',            260.00,  'Dinner',    'Non-Veg'),
+
+-- Beverages
+('Masala Chai',            40.00,  'Beverages', 'General'),
+('Filter Coffee',          45.00,  'Beverages', 'General'),
+('Fresh Lime Soda',        70.00,  'Beverages', 'General'),
+('Bottled Water 1L',       30.00,  'Beverages', 'General')
+ON CONFLICT (name) DO NOTHING;
+
+-- Assign core facilities to hotels 1..10
+WITH core_facilities AS (
+  SELECT facility_id FROM facility
+  WHERE name IN (
+    'Free WiFi','Parking','Restaurant','Room Service',
+    'Air Conditioning','24x7 Reception','Elevator'
+  )
+),
+hotels AS (
+  SELECT hotel_id FROM hotel WHERE hotel_id BETWEEN 1 AND 10
+)
+INSERT INTO hotel_facility (hotel_id, facility_id)
+SELECT h.hotel_id, f.facility_id
+FROM hotels h
+CROSS JOIN core_facilities f
+ON CONFLICT DO NOTHING;
+
+INSERT INTO room_type (name, max_capacity, price_multiplier) VALUES
+  ('Standard', 2, 1.00),
+  ('Deluxe',   3, 1.25),
+  ('Suite',    4, 1.60)
+ON CONFLICT (name) DO NOTHING;
+
+-- Verify they exist and capture their IDs
+SELECT room_type_id, name FROM room_type ORDER BY room_type_id;
